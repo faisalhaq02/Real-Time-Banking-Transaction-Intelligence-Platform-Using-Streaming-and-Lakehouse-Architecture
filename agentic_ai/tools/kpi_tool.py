@@ -61,12 +61,10 @@ def _get_kpi_paths():
     for path in candidate_paths:
         if path is None:
             continue
-
         try:
             p = Path(path)
         except Exception:
             continue
-
         key = str(p)
         if key not in seen:
             seen.add(key)
@@ -90,29 +88,19 @@ def _load_path(path: Path) -> Optional[pd.DataFrame]:
 
 
 def _load_best_kpi_dataset():
-    """
-    Load the first valid non-empty KPI dataset.
-    """
     for path in _get_kpi_paths():
         df = _load_path(path)
         if df is not None and not df.empty:
             return standardize(df), path
-
     return None, None
 
 
 def _load_all_kpi_datasets() -> list[tuple[pd.DataFrame, Path]]:
-    """
-    Load all available non-empty KPI datasets.
-    This helps route questions to the most suitable grouped summary file.
-    """
     datasets = []
-
     for path in _get_kpi_paths():
         df = _load_path(path)
         if df is not None and not df.empty:
             datasets.append((standardize(df), path))
-
     return datasets
 
 
@@ -120,12 +108,8 @@ def _load_all_kpi_datasets() -> list[tuple[pd.DataFrame, Path]]:
 # STREAMING SUPPLEMENT
 # ---------------------------------------------------------
 def _load_live_stream_snapshot():
-    """
-    Import lazily to avoid circular imports and use the latest streaming batch
-    as a live supplement to the KPI snapshot.
-    """
     try:
-        from agentic_ai.tools.streaming_tool import _prepare_streaming_context  # noqa: WPS433
+        from agentic_ai.tools.streaming_tool import _prepare_streaming_context
     except Exception:
         return None
 
@@ -427,6 +411,36 @@ def _select_best_dataset_for_query(user_query: str):
 
 
 # ---------------------------------------------------------
+# OLLAMA LLM ENHANCEMENT
+# ---------------------------------------------------------
+def _try_ollama(user_query: str, raw_data: str) -> str:
+    """
+    Send real data + user question to Ollama.
+    Returns LLM response, or empty string if Ollama is unavailable.
+    This is always wrapped in try/except so it never crashes the tool.
+    """
+    try:
+        from agentic_ai.utils.ollama_client import ask_ollama
+
+        if not raw_data or "unavailable" in raw_data.lower():
+            return ""
+
+        prompt = (
+            f"Here is the current KPI data from our banking platform:\n\n"
+            f"{raw_data}\n\n"
+            f"User question: {user_query}\n\n"
+            f"Answer the question using only the data above. "
+            f"Be concise and use plain business language."
+        )
+
+        response = ask_ollama(prompt=prompt)
+        return response if response and response.strip() else ""
+
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------
 # KPI SUMMARY
 # ---------------------------------------------------------
 def get_kpi_summary() -> str:
@@ -537,7 +551,9 @@ def answer_kpi_question(user_query: str) -> str:
         "dashboard summary",
         "overview",
     ]):
-        return get_kpi_summary()
+        raw = get_kpi_summary()
+        llm = _try_ollama(user_query, raw)
+        return llm if llm else raw
 
     if _contains_any(q, [
         "live kpi",
@@ -584,132 +600,177 @@ def answer_kpi_question(user_query: str) -> str:
         if avg_col:
             value = _mean_metric(df, avg_col)
             if value is not None:
-                return "\n".join([
+                raw = "\n".join([
                     make_section_title("Average Transaction Amount"),
                     make_kv_line("Source", source_name),
                     make_kv_line("Value", f"{value:,.2f}"),
                 ])
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         return make_empty_message("Average transaction amount is unavailable.")
 
     if _contains_any(q, ["total spend", "revenue", "money processed", "processed money", "total amount"]):
         if spend_col:
             value = _sum_metric(df, spend_col)
             if value is not None:
-                return "\n".join([
+                raw = "\n".join([
                     make_section_title("Total Spend"),
                     make_kv_line("Source", source_name),
                     make_kv_line("Value", f"{value:,.2f}"),
                 ])
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         return make_empty_message("Total spend is unavailable.")
 
     if _contains_any(q, ["transaction count", "total transactions", "how many transactions", "volume"]):
         if txn_col:
             value = _sum_metric(df, txn_col)
             if value is not None:
-                return "\n".join([
+                raw = "\n".join([
                     make_section_title("Transaction Count"),
                     make_kv_line("Source", source_name),
                     make_kv_line("Value", f"{value:,.0f}"),
                 ])
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         return make_empty_message("Transaction count is unavailable.")
 
     if _contains_any(q, ["how many customers", "total customers", "customer count"]):
         if cust_col:
             value = _sum_metric(df, cust_col)
             if value is not None:
-                return "\n".join([
+                raw = "\n".join([
                     make_section_title("Customer Count"),
                     make_kv_line("Source", source_name),
                     make_kv_line("Value", f"{value:,.0f}"),
                 ])
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         return make_empty_message("Customer count is unavailable.")
 
     if "segment" in q:
         if _contains_any(q, ["highest spend", "top segment", "which segment", "best segment"]):
             if segment_col and spend_col:
                 grouped = _group_summary(df, segment_col, spend_col, agg="sum", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Segments by Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Segments by Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["average spend", "avg spend"]):
             if segment_col and spend_col:
                 grouped = _group_summary(df, segment_col, spend_col, agg="mean", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Segments by Average Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Segments by Average Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["compare", "performance", "segment wise", "by segment"]):
             if segment_col and spend_col:
-                return _compare_group(df, segment_col, spend_col)
+                raw = _compare_group(df, segment_col, spend_col)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
 
     if _contains_any(q, ["channel", "pos", "atm", "ecom", "mobile"]):
         if _contains_any(q, ["highest", "top", "which channel", "best channel"]):
             if channel_col and spend_col:
                 grouped = _group_summary(df, channel_col, spend_col, agg="sum", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Channels by Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Channels by Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["average", "avg"]):
             if channel_col and spend_col:
                 grouped = _group_summary(df, channel_col, spend_col, agg="mean", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Channels by Average Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Channels by Average Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["compare", "vs", "performance", "by channel"]):
             if channel_col and spend_col:
-                return _compare_group(df, channel_col, spend_col)
+                raw = _compare_group(df, channel_col, spend_col)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
 
     if _contains_any(q, ["merchant", "category", "merchant category"]):
         if _contains_any(q, ["top", "highest", "best"]):
             if merchant_col and spend_col:
                 grouped = _group_summary(df, merchant_col, spend_col, agg="sum", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Merchant Categories by Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Merchant Categories by Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["average", "avg"]):
             if merchant_col and spend_col:
                 grouped = _group_summary(df, merchant_col, spend_col, agg="mean", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Merchant Categories by Average Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Merchant Categories by Average Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["compare", "performance"]):
             if merchant_col and spend_col:
-                return _compare_group(df, merchant_col, spend_col)
+                raw = _compare_group(df, merchant_col, spend_col)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
 
     if "city" in q:
         if _contains_any(q, ["highest", "top", "which city", "best city"]):
             if city_col and spend_col:
                 grouped = _group_summary(df, city_col, spend_col, agg="sum", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Cities by Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Cities by Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["average", "avg"]):
             if city_col and spend_col:
                 grouped = _group_summary(df, city_col, spend_col, agg="mean", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Cities by Average Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Cities by Average Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["compare", "performance", "by city"]):
             if city_col and spend_col:
-                return _compare_group(df, city_col, spend_col)
+                raw = _compare_group(df, city_col, spend_col)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
 
     if "country" in q:
         if _contains_any(q, ["highest", "top", "which country", "best country"]):
             if country_col and spend_col:
                 grouped = _group_summary(df, country_col, spend_col, agg="sum", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Countries by Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Countries by Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["average", "avg"]):
             if country_col and spend_col:
                 grouped = _group_summary(df, country_col, spend_col, agg="mean", top_n=top_n)
-                return _format_grouped_result(f"Top {top_n} Countries by Average Spend from {source_name}", grouped)
+                raw = _format_grouped_result(f"Top {top_n} Countries by Average Spend from {source_name}", grouped)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
         if _contains_any(q, ["compare", "performance", "by country"]):
             if country_col and spend_col:
-                return _compare_group(df, country_col, spend_col)
+                raw = _compare_group(df, country_col, spend_col)
+                llm = _try_ollama(user_query, raw)
+                return llm if llm else raw
 
     if _contains_any(q, ["top channels"]) and channel_col and spend_col:
         grouped = _group_summary(df, channel_col, spend_col, agg="sum", top_n=top_n)
-        return _format_grouped_result(f"Top {top_n} Channels by Spend from {source_name}", grouped)
+        raw = _format_grouped_result(f"Top {top_n} Channels by Spend from {source_name}", grouped)
+        llm = _try_ollama(user_query, raw)
+        return llm if llm else raw
 
     if _contains_any(q, ["top segments"]) and segment_col and spend_col:
         grouped = _group_summary(df, segment_col, spend_col, agg="sum", top_n=top_n)
-        return _format_grouped_result(f"Top {top_n} Segments by Spend from {source_name}", grouped)
+        raw = _format_grouped_result(f"Top {top_n} Segments by Spend from {source_name}", grouped)
+        llm = _try_ollama(user_query, raw)
+        return llm if llm else raw
 
     if _contains_any(q, ["top cities"]) and city_col and spend_col:
         grouped = _group_summary(df, city_col, spend_col, agg="sum", top_n=top_n)
-        return _format_grouped_result(f"Top {top_n} Cities by Spend from {source_name}", grouped)
+        raw = _format_grouped_result(f"Top {top_n} Cities by Spend from {source_name}", grouped)
+        llm = _try_ollama(user_query, raw)
+        return llm if llm else raw
 
     if _contains_any(q, ["top countries"]) and country_col and spend_col:
         grouped = _group_summary(df, country_col, spend_col, agg="sum", top_n=top_n)
-        return _format_grouped_result(f"Top {top_n} Countries by Spend from {source_name}", grouped)
+        raw = _format_grouped_result(f"Top {top_n} Countries by Spend from {source_name}", grouped)
+        llm = _try_ollama(user_query, raw)
+        return llm if llm else raw
 
     if _contains_any(q, ["top merchants", "top merchant categories"]) and merchant_col and spend_col:
         grouped = _group_summary(df, merchant_col, spend_col, agg="sum", top_n=top_n)
-        return _format_grouped_result(f"Top {top_n} Merchant Categories by Spend from {source_name}", grouped)
+        raw = _format_grouped_result(f"Top {top_n} Merchant Categories by Spend from {source_name}", grouped)
+        llm = _try_ollama(user_query, raw)
+        return llm if llm else raw
 
-    # IMPORTANT:
-    # Return empty string instead of full summary.
-    # Let agent.py decide whether to fallback to summary.
     return ""
