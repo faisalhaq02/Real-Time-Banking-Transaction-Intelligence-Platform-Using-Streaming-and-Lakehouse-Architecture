@@ -9,3 +9,28 @@ airflow_venv/
 .DS_Store
 .ipynb_checkpoints/
 *.zip
+
+# ML model registry — large binary artifacts, not source
+models/registry/
+submission_dataset/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Spark / Ivy
+.ivy2/
+spark-warehouse/
+
+# Airflow runtime
+airflow_home/
+logs/
+
+# Streaming checkpoints
+checkpoints/
+
+# OS
+.DS_Store
