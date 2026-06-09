@@ -16,7 +16,22 @@ Banks generate continuous, high-velocity transaction streams that need to be pro
 
 ## Architecture
 
-![Architecture Diagram](docs/architecture.png)
+## Dashboards
+
+Three Tableau workbooks ship in `Tableau_BI_Dashboards/`:
+
+- **Executive** — KPIs, trends, segment performance
+- **Real-time** — transaction velocity, geographic heatmap, live fraud flags
+- **Geography** — country/region drill-downs
+
+### Executive
+![Executive Dashboard](docs/dashboard_executive.png)
+
+### Real-time
+![Real-time Dashboard](docs/dashboard_realtime.png)
+
+### Geography
+![Geography Dashboard](docs/dashboard_geography.png)
 
 The platform follows a **medallion architecture** over a Kafka + Spark + Iceberg backbone:
 
