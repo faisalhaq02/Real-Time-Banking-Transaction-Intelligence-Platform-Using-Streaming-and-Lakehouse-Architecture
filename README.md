@@ -11,8 +11,6 @@
 
 ## 📐 Architecture Overview
 
-> *[Insert architecture diagram: `docs/architecture.png`]*
-
 The platform follows a **medallion lakehouse architecture** with the following layers:
 
 | Layer | Purpose | Technologies |
@@ -77,8 +75,6 @@ A Flask-based service that lets analysts query the platform in natural language:
 - Executive dashboard (Tableau)
 - Real-time monitoring dashboard
 - Geographic distribution dashboard
-
-> *[Insert dashboard screenshots: `tableau/screenshots/`]*
 
 ---
 
